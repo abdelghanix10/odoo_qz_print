@@ -12,16 +12,16 @@ This module eliminates browser print dialogs in Odoo POS, supports offline recei
 
 ## ✨ Key Features
 
-- **Silent POS Receipt Printing**: Patches `PosStore.prototype.printReceipt` to print POS receipts directly to the default printer via QZ Tray when `receipt_print_method` is set to `'qz_tray'`.
+- **Silent POS Receipt Printing**: Patches Odoo 20's `PosTicketPrinterPlugin.prototype.printOrderReceipt` to print POS receipts directly to the default printer via QZ Tray when `receipt_print_method` is set to `'qz_tray'`.
 - **Backend Test Print Button**: Adds a systray print icon in the Odoo backend to quickly verify QZ Tray connectivity and printer setup.
 - **3-Tier Hybrid Request Signing (HTTPS, HTTP LAN & Offline Ready)**:
   1. **Web Crypto API (`window.crypto.subtle`)**: Fast local client-side signing on `https://` and `http://localhost`.
   2. **Pure-JS RSA-SHA1 (`BigInt`) Fallback**: Local client-side signing on plain HTTP LAN addresses (e.g., `http://192.168.1.x:8069`) where browsers disable `window.crypto.subtle`.
   3. **Server-Side Fallback (`/qz/sign`)**: Automatic server fallback if client-side key import is unavailable.
 - **Connection Resilience**:
-  - Coalesced WebSocket reconnection on port `8181`.
-  - 60-second active heartbeat probes.
-  - Automatic recovery on browser `focus`, `visibilitychange`, and `online` events.
+  - Coalesced WebSocket reconnection on secure port `8181`, with HTTP fallback to insecure ports.
+  - 60-second active heartbeat probes after QZ Tray has been used.
+  - Recovery on browser lifecycle events only after a connection has been requested.
 - **Offline-Safe POS Service Worker**: Overrides `/pos/service-worker.js` to prevent unhandled promise rejections when the POS terminal goes offline.
 
 ---
@@ -45,7 +45,7 @@ odoo_qz_print/
     │   └── qz-tray.js                # QZ Tray JS Connector v2.2.5
     └── src/
         ├── qz_service.js             # Odoo QZ Tray service (connection, signing, print retry)
-        ├── pos_qz_patch.js           # PosStore.printReceipt patch
+        ├── pos_qz_patch.js           # PosTicketPrinterPlugin.printOrderReceipt patch
         ├── print_icon.js             # Backend Systray test component
         ├── print_icon.xml            # Backend Systray template
         └── service_worker.js         # Resilient POS Service Worker
@@ -71,7 +71,7 @@ odoo_qz_print/
 Place the `odoo_qz_print` folder inside your Odoo `custom-addons` directory.
 
 ### Step 2: Generate the Certificate and Private Key
-Run the key generator script once on the Odoo server:
+The certificate and private key are generated automatically on the first request if they do not exist. They can also be generated manually on the Odoo server:
 
 ```bash
 cd /path/to/custom-addons/odoo_qz_print
@@ -107,7 +107,7 @@ This addon supports both **Odoo 19** and **Odoo 20**. If you are switching betwe
 | **`__manifest__.py` Version** | `'version': '19.0.1.0.0'` (or `'1.0'`) | **`'version': '20.0.1.0.0'`** *(Required prefix in Odoo 20)* |
 | **Systray Icon (`print_icon.xml`)** | Font Awesome (`<i class="fa fa-print fa-lg"/>`) | Material Symbols (`<i class="oi oi-fw" data-icon="print"/>`) |
 | **Template Event Handler** | `t-on-click="onClick"` or `t-on-click="this.onClick"` | **`t-on-click="this.onClick"`** *(OWL 3 strict syntax)* |
-| **Service Access in `PosStore`** | `this.env.services.qz_tray` / `this.env.services.renderer` | `getQzService()` & `this.renderer \|\| this.env?.services?.renderer` |
+| **Service Access in POS printing** | `this.env.services.qz_tray` / `this.env.services.renderer` | `getQzService()` and `PosTicketPrinterPlugin` |
 | **Python Version** | Python 3.10 – 3.12 | Python 3.12 – 3.14 (`datetime.now(timezone.utc)`) |
 
 > **Tip for Odoo 19 Users:**  
@@ -123,7 +123,7 @@ This addon supports both **Odoo 19** and **Odoo 20**. If you are switching betwe
 - A test page (`Odoo QZ Test` with the current timestamp) will be sent directly to your OS default printer.
 
 ### 2. Printing Receipts in Point of Sale (POS)
-- In `PosStore`, when `this.config.receipt_print_method === "qz_tray"`, `printReceipt()` automatically routes the rendered `OrderReceipt` HTML through `qz_tray.print(printerName, htmlContent, "pixel", {})`.
+- In `PosTicketPrinterPlugin`, when `this.config.receipt_print_method === "qz_tray"`, `printOrderReceipt()` automatically routes the rendered `point_of_sale.pos_order_receipt` HTML through `qz_tray.print(printerName, htmlContent, "pixel", {})`.
 - You can also call the service from any custom OWL component or POS screen:
   ```javascript
   import { useService } from "@web/core/utils/hooks";

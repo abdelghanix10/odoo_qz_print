@@ -240,6 +240,7 @@ export const qzTrayService = {
     let reconnectPromise = null;
     let heartbeatTimer = null;
     let printingInProgress = false;
+    let connectionRequested = false;
     let destroyed = false;
 
     const hasWebCryptoSubtle = () =>
@@ -447,7 +448,7 @@ export const qzTrayService = {
 
     const safeDisconnect = async (reason = "unspecified") => {
       const qz = getQZ();
-      if (!qz) return;
+      if (!qz || !qz.websocket.isActive()) return;
 
       try {
         await qz.websocket.disconnect();
@@ -462,6 +463,7 @@ export const qzTrayService = {
     };
 
     const connect = async () => {
+      connectionRequested = true;
       const qz = await waitForQZ();
       if (!qz) {
         throw new Error(
@@ -475,23 +477,42 @@ export const qzTrayService = {
         await withTimeout(
           qz.websocket.connect({
             host: "localhost",
-            port: {
-              secure: [8181],
-              insecure: [],
-            },
+            port: { secure: [8181], insecure: [] },
             usingSecure: true,
             keepAlive: 60,
           }),
           CONNECT_TIMEOUT_MS,
-          "QZ websocket connect",
+          "QZ secure websocket connect",
         );
+        startHeartbeat();
       } catch (e) {
         const msg = (e.message || String(e)).toLowerCase();
         if (
           msg.includes("already connected") ||
           msg.includes("already exists")
         ) {
+          startHeartbeat();
           return;
+        }
+        if (window.location.protocol !== "https:") {
+          warn("Secure QZ connection failed; trying insecure websocket ports");
+          await safeDisconnect("secure connect failure cleanup");
+          try {
+            await withTimeout(
+              qz.websocket.connect({
+                host: "localhost",
+                port: { secure: [8181], insecure: [8182, 8283, 8384, 8485] },
+                usingSecure: false,
+                keepAlive: 60,
+              }),
+              CONNECT_TIMEOUT_MS,
+              "QZ insecure websocket connect",
+            );
+            startHeartbeat();
+            return;
+          } catch (fallbackError) {
+            warn("Insecure QZ connection failed —", fallbackError.message);
+          }
         }
         warn("Connect failed, cleaning up —", e.message);
         await safeDisconnect("connect failure cleanup");
@@ -666,7 +687,7 @@ export const qzTrayService = {
       }
 
       heartbeatTimer = setInterval(async () => {
-        if (destroyed || printingInProgress) {
+        if (destroyed || printingInProgress || !connectionRequested) {
           return;
         }
 
@@ -723,7 +744,7 @@ export const qzTrayService = {
 
     const registerBrowserLifecycle = () => {
       const recover = async (event) => {
-        if (destroyed) return;
+        if (destroyed || !connectionRequested) return;
 
         const qz = getQZ();
         if (!qz) return;
@@ -755,7 +776,6 @@ export const qzTrayService = {
       registerCloseCallback();
     }
     registerBrowserLifecycle();
-    startHeartbeat();
 
     qzServiceInstance = {
       connect,

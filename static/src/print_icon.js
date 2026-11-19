@@ -6,7 +6,6 @@ import { useService } from "@web/core/utils/hooks";
 
 export class QzPrintIcon extends Component {
   static template = "odoo_qz_print.QzPrintIcon";
-  static props = {};
 
   setup() {
     this.qz = useService("qz_tray");

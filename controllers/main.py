@@ -21,6 +21,25 @@ class QZTrayController(http.Controller):
         module_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         return os.path.join(module_path, 'keys')
 
+    def _ensure_keys_exist(self):
+        """Generate the QZ Tray keys when they have not been created yet."""
+        keys_dir = self._get_keys_dir()
+        cert_path = os.path.join(keys_dir, 'digital-certificate.txt')
+        key_path = os.path.join(keys_dir, 'private-key.pem')
+
+        if os.path.exists(cert_path) and os.path.exists(key_path):
+            return True
+
+        try:
+            from ..generate_keys import generate_keys
+            _logger.info("QZ Tray keys not found. Generating them in %s.", keys_dir)
+            generate_keys()
+        except Exception:
+            _logger.exception("Failed to generate QZ Tray keys in %s.", keys_dir)
+            return False
+
+        return os.path.exists(cert_path) and os.path.exists(key_path)
+
     @http.route(
         '/qz/certificate',
         type='http',
@@ -31,6 +50,7 @@ class QZTrayController(http.Controller):
         save_session=False,
     )
     def get_certificate(self, **kwargs):
+        self._ensure_keys_exist()
         keys_dir = self._get_keys_dir()
         cert_path = os.path.join(keys_dir, 'digital-certificate.txt')
 
@@ -67,6 +87,7 @@ class QZTrayController(http.Controller):
             _logger.error("Cryptography library not available: %s", e)
             return Response("Server error: cryptography library not installed", status=500, content_type='text/plain')
 
+        self._ensure_keys_exist()
         keys_dir = self._get_keys_dir()
         key_path = os.path.join(keys_dir, 'private-key.pem')
 
@@ -121,6 +142,7 @@ class QZTrayController(http.Controller):
             _logger.error("Cryptography library not available: %s", e)
             return Response("Server error: cryptography library not installed", status=500, content_type='text/plain')
 
+        self._ensure_keys_exist()
         keys_dir = self._get_keys_dir()
         key_path = os.path.join(keys_dir, 'private-key.pem')
 
